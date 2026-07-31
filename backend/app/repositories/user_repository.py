@@ -1,10 +1,11 @@
+from datetime import datetime
 from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.models.user import User
+from app.models.user import User, UserStatus
 
 
 class UserRepository:
@@ -17,11 +18,16 @@ class UserRepository:
 
         result = await db.execute(
             select(User)
-            .options(selectinload(User.role))
-            .where(User.email == email)
+            .options(
+                selectinload(User.role)
+            )
+            .where(
+                User.email == email
+            )
         )
 
         return result.scalar_one_or_none()
+
 
     @staticmethod
     async def get_by_id(
@@ -31,11 +37,16 @@ class UserRepository:
 
         result = await db.execute(
             select(User)
-            .options(selectinload(User.role))
-            .where(User.id == user_id)
+            .options(
+                selectinload(User.role)
+            )
+            .where(
+                User.id == user_id
+            )
         )
 
         return result.scalar_one_or_none()
+
 
     @staticmethod
     async def create(
@@ -47,54 +58,98 @@ class UserRepository:
 
         await db.commit()
 
-        await db.refresh(user)
+        await db.refresh(
+            user
+        )
 
-        return user
+        return await UserRepository.get_by_id(
+            db,
+            user.id,
+        )
+
 
     @staticmethod
     async def get_all_users(
         db: AsyncSession,
     ) -> list[User]:
+
         result = await db.execute(
             select(User)
-            .options(selectinload(User.role))
-            .order_by(User.created_at.desc())
+            .options(
+                selectinload(User.role)
+            )
+            .order_by(
+                User.created_at.desc()
+            )
         )
 
-        return list(result.scalars().all())
+        return list(
+            result.scalars().all()
+        )
+
 
     @staticmethod
     async def get_pending_users(
         db: AsyncSession,
     ) -> list[User]:
+
         result = await db.execute(
             select(User)
-            .options(selectinload(User.role))
-            .where(User.status == "PENDING")
-            .order_by(User.created_at.desc())
+            .options(
+                selectinload(User.role)
+            )
+            .where(
+                User.status == UserStatus.PENDING
+            )
+            .order_by(
+                User.created_at.desc()
+            )
         )
 
-        return list(result.scalars().all())
+        return list(
+            result.scalars().all()
+        )
+
 
     @staticmethod
     async def update_status(
         db: AsyncSession,
         user_id: UUID,
-        new_status: str,
+        new_status: UserStatus,
+        approved_by: UUID | None = None,
         role_id: int | None = None,
+        branch_id: UUID | None = None,
     ) -> User | None:
-        user = await UserRepository.get_by_id(db, user_id)
+
+
+        user = await UserRepository.get_by_id(
+            db,
+            user_id,
+        )
+
 
         if user is None:
             return None
 
+
         user.status = new_status
+
 
         if role_id is not None:
             user.role_id = role_id
 
+        if branch_id is not None:
+            user.branch_id = branch_id
+
+        if new_status == UserStatus.APPROVED:
+            user.approved_by = approved_by
+            user.approved_at = datetime.utcnow()
+
+
         await db.commit()
-        await db.refresh(user)
 
-        return user
 
+        return await UserRepository.get_by_id(
+            db,
+            user_id,
+        )

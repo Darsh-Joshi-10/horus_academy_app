@@ -1,28 +1,28 @@
 import 'package:flutter/material.dart';
-import '../models/branch_model.dart';
-import '../repository/branch_repository.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-class BranchListScreen extends StatefulWidget {
+import '../models/branch_model.dart';
+import '../providers/branches_provider.dart';
+import '../widgets/branch_card.dart';
+import '../widgets/branch_form_dialog.dart';
+
+class BranchListScreen extends ConsumerStatefulWidget {
   const BranchListScreen({super.key});
 
   @override
-  State<BranchListScreen> createState() => _BranchListScreenState();
+  ConsumerState<BranchListScreen> createState() => _BranchListScreenState();
 }
 
-class _BranchListScreenState extends State<BranchListScreen> {
-  final _branchRepository = BranchRepository();
+class _BranchListScreenState extends ConsumerState<BranchListScreen> {
   final _searchController = TextEditingController();
-
-  List<Branch> _allBranches = [];
-  List<Branch> _filteredBranches = [];
-  bool _isLoading = true;
-  String? _error;
+  String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _fetchBranches();
-    _searchController.addListener(_filterBranches);
+    _searchController.addListener(() {
+      setState(() => _searchQuery = _searchController.text.toLowerCase().trim());
+    });
   }
 
   @override
@@ -31,341 +31,370 @@ class _BranchListScreenState extends State<BranchListScreen> {
     super.dispose();
   }
 
-  Future<void> _fetchBranches() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-    });
-
-    try {
-      final branches = await _branchRepository.getBranches();
-      if (!mounted) return;
-      setState(() {
-        _allBranches = branches;
-        _filteredBranches = branches;
-        _isLoading = false;
-      });
-      _filterBranches();
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _error = e.toString();
-        _isLoading = false;
-      });
-    }
+  List<Branch> _filterBranches(List<Branch> branches) {
+    if (_searchQuery.isEmpty) return branches;
+    return branches.where((b) {
+      return b.name.toLowerCase().contains(_searchQuery) ||
+          b.branchCode.toLowerCase().contains(_searchQuery) ||
+          b.city.toLowerCase().contains(_searchQuery);
+    }).toList();
   }
 
-  void _filterBranches() {
-    final query = _searchController.text.toLowerCase().trim();
-    if (query.isEmpty) {
-      setState(() {
-        _filteredBranches = _allBranches;
-      });
-    } else {
-      setState(() {
-        _filteredBranches = _allBranches.where((b) {
-          return b.name.toLowerCase().contains(query) ||
-              b.branchCode.toLowerCase().contains(query) ||
-              b.city.toLowerCase().contains(query);
-        }).toList();
-      });
-    }
+  Future<void> _showCreateDialog() async {
+    await BranchFormDialog.show(
+      context,
+      onSubmit: (data) async {
+        try {
+          await ref.read(branchesProvider.notifier).createBranch(data);
+          if (mounted) {
+            _showSuccessSnackbar('Branch created successfully.');
+          }
+        } catch (e) {
+          if (mounted) _showErrorSnackbar(e.toString());
+          rethrow;
+        }
+      },
+    );
   }
 
-  void _showBranchFormDialog([Branch? branch]) {
-    final isEditing = branch != null;
-    final codeCtrl = TextEditingController(text: branch?.branchCode ?? "");
-    final nameCtrl = TextEditingController(text: branch?.name ?? "");
-    final addressCtrl = TextEditingController(text: branch?.address ?? "");
-    final cityCtrl = TextEditingController(text: branch?.city ?? "");
-    final stateCtrl = TextEditingController(text: branch?.state ?? "");
-    final phoneCtrl = TextEditingController(text: branch?.phone ?? "");
-    final emailCtrl = TextEditingController(text: branch?.email ?? "");
-    final formKey = GlobalKey<FormState>();
-
-    showDialog(
-      context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: Text(isEditing ? "Edit Branch" : "Add New Branch"),
-        content: SingleChildScrollView(
-          child: Form(
-            key: formKey,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: codeCtrl,
-                  decoration: const InputDecoration(labelText: "Branch Code (e.g. B001)"),
-                  validator: (v) => v == null || v.trim().isEmpty ? "Required" : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(labelText: "Branch Name"),
-                  validator: (v) => v == null || v.trim().isEmpty ? "Required" : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: addressCtrl,
-                  decoration: const InputDecoration(labelText: "Address"),
-                  validator: (v) => v == null || v.trim().isEmpty ? "Required" : null,
-                ),
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextFormField(
-                        controller: cityCtrl,
-                        decoration: const InputDecoration(labelText: "City"),
-                        validator: (v) => v == null || v.trim().isEmpty ? "Required" : null,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: TextFormField(
-                        controller: stateCtrl,
-                        decoration: const InputDecoration(labelText: "State"),
-                        validator: (v) => v == null || v.trim().isEmpty ? "Required" : null,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: phoneCtrl,
-                  decoration: const InputDecoration(labelText: "Phone (Optional)"),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: emailCtrl,
-                  decoration: const InputDecoration(labelText: "Email (Optional)"),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text("Cancel"),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              if (!formKey.currentState!.validate()) return;
-              final messenger = ScaffoldMessenger.of(context);
-              final navigator = Navigator.of(dialogCtx);
-              final data = {
-                "branch_code": codeCtrl.text.trim(),
-                "name": nameCtrl.text.trim(),
-                "address": addressCtrl.text.trim(),
-                "city": cityCtrl.text.trim(),
-                "state": stateCtrl.text.trim(),
-                "phone": phoneCtrl.text.trim().isEmpty ? null : phoneCtrl.text.trim(),
-                "email": emailCtrl.text.trim().isEmpty ? null : emailCtrl.text.trim(),
-              };
-
-              try {
-                if (isEditing) {
-                  await _branchRepository.updateBranch(branch.id, data);
-                } else {
-                  await _branchRepository.createBranch(data);
-                }
-                navigator.pop();
-                messenger.showSnackBar(
-                  SnackBar(
-                    content: Text(isEditing ? "Branch updated" : "Branch added successfully"),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-                _fetchBranches();
-              } catch (e) {
-                messenger.showSnackBar(
-                  SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
-                );
-              }
-            },
-            child: Text(isEditing ? "Save Changes" : "Create Branch"),
-          ),
-        ],
-      ),
+  Future<void> _showEditDialog(Branch branch) async {
+    await BranchFormDialog.show(
+      context,
+      branch: branch,
+      onSubmit: (data) async {
+        try {
+          await ref.read(branchesProvider.notifier).updateBranch(branch.id, data);
+          if (mounted) {
+            _showSuccessSnackbar('${branch.name} updated successfully.');
+          }
+        } catch (e) {
+          if (mounted) _showErrorSnackbar(e.toString());
+          rethrow;
+        }
+      },
     );
   }
 
   void _confirmDelete(Branch branch) {
     showDialog(
       context: context,
-      builder: (dialogCtx) => AlertDialog(
-        title: const Text("Delete Branch"),
-        content: Text("Are you sure you want to delete '${branch.name}'?"),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogCtx),
-            child: const Text("Cancel"),
+      builder: (ctx) {
+        final colorScheme = Theme.of(ctx).colorScheme;
+        final theme = Theme.of(ctx);
+        return AlertDialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          icon: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: colorScheme.errorContainer,
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.delete_outline, color: colorScheme.onErrorContainer, size: 28),
           ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            onPressed: () async {
-              final messenger = ScaffoldMessenger.of(context);
-              final navigator = Navigator.of(dialogCtx);
-              try {
-                await _branchRepository.deleteBranch(branch.id);
-                navigator.pop();
-                messenger.showSnackBar(
-                  const SnackBar(
-                    content: Text("Branch deleted"),
-                    backgroundColor: Colors.orange,
-                  ),
-                );
-                _fetchBranches();
-              } catch (e) {
-                messenger.showSnackBar(
-                  SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
-                );
-              }
-            },
-            child: const Text("Delete"),
+          title: Text(
+            'Delete Branch?',
+            style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            textAlign: TextAlign.center,
           ),
-        ],
+          content: Text(
+            'Are you sure you want to delete "${branch.name}"? This action cannot be undone.',
+            textAlign: TextAlign.center,
+            style: theme.textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
+          ),
+          actionsAlignment: MainAxisAlignment.spaceEvenly,
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                Navigator.pop(ctx);
+                try {
+                  await ref.read(branchesProvider.notifier).deleteBranch(branch.id);
+                  if (mounted) {
+                    _showSuccessSnackbar('${branch.name} has been deleted.');
+                  }
+                } catch (e) {
+                  if (mounted) _showErrorSnackbar(e.toString());
+                }
+              },
+              style: FilledButton.styleFrom(backgroundColor: colorScheme.error),
+              child: const Text('Delete'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<void> _toggleActive(Branch branch) async {
+    try {
+      await ref.read(branchesProvider.notifier).toggleActive(branch);
+      if (mounted) {
+        _showSuccessSnackbar(
+          branch.isActive
+              ? '${branch.name} has been deactivated.'
+              : '${branch.name} has been activated.',
+        );
+      }
+    } catch (e) {
+      if (mounted) _showErrorSnackbar(e.toString());
+    }
+  }
+
+  void _showSuccessSnackbar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: Colors.green.shade700,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
+      ),
+    );
+  }
+
+  void _showErrorSnackbar(String message) {
+    final colorScheme = Theme.of(context).colorScheme;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const Icon(Icons.error_outline_rounded, color: Colors.white, size: 20),
+            const SizedBox(width: 12),
+            Expanded(child: Text(message)),
+          ],
+        ),
+        backgroundColor: colorScheme.error,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        margin: const EdgeInsets.all(16),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
+    final branchesState = ref.watch(branchesProvider);
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
     return Scaffold(
+      backgroundColor: colorScheme.surfaceContainerLowest,
       appBar: AppBar(
-        title: const Text("Branch Management"),
-        actions: [
-          IconButton(
-            onPressed: _fetchBranches,
-            icon: const Icon(Icons.refresh),
-            tooltip: "Refresh",
+        backgroundColor: colorScheme.surface,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Text(
+              'Branch Management',
+              style: theme.textTheme.titleLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: colorScheme.onSurface,
+              ),
+            ),
+            branchesState.whenOrNull(
+                  data: (branches) => Text(
+                    '${branches.length} ${branches.length == 1 ? 'branch' : 'branches'}',
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ) ??
+                const SizedBox.shrink(),
+          ],
+        ),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(1),
+          child: Divider(
+            height: 1,
+            color: colorScheme.outlineVariant.withValues(alpha: 0.4),
           ),
-        ],
+        ),
       ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _showBranchFormDialog(),
+        onPressed: _showCreateDialog,
         icon: const Icon(Icons.add),
-        label: const Text("Add Branch"),
+        label: const Text('Add Branch'),
       ),
       body: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.all(16.0),
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
             child: TextField(
               controller: _searchController,
               decoration: InputDecoration(
-                hintText: "Search branches by name, code, or city...",
+                hintText: 'Search by name, code, or city…',
                 prefixIcon: const Icon(Icons.search),
-                suffixIcon: _searchController.text.isNotEmpty
+                suffixIcon: _searchQuery.isNotEmpty
                     ? IconButton(
                         icon: const Icon(Icons.clear),
                         onPressed: () => _searchController.clear(),
                       )
                     : null,
+                filled: true,
+                fillColor: colorScheme.surface,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                  ),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide(
+                    color: colorScheme.outlineVariant.withValues(alpha: 0.4),
+                  ),
+                ),
               ),
             ),
           ),
           Expanded(
-            child: _isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : _error != null
-                    ? Center(
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(_error!, style: const TextStyle(color: Colors.red)),
-                            const SizedBox(height: 12),
-                            ElevatedButton(
-                              onPressed: _fetchBranches,
-                              child: const Text("Retry"),
-                            ),
-                          ],
-                        ),
-                      )
-                    : _filteredBranches.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: const [
-                                Icon(Icons.location_city_outlined, size: 64, color: Colors.grey),
-                                SizedBox(height: 16),
-                                Text(
-                                  "No branches found",
-                                  style: TextStyle(fontSize: 16, color: Colors.grey),
-                                ),
-                              ],
-                            ),
-                          )
-                        : RefreshIndicator(
-                            onRefresh: _fetchBranches,
-                            child: ListView.builder(
-                              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                              itemCount: _filteredBranches.length,
-                              itemBuilder: (context, index) {
-                                final branch = _filteredBranches[index];
-                                return Card(
-                                  margin: const EdgeInsets.only(bottom: 12),
-                                  elevation: 2,
-                                  child: ListTile(
-                                    leading: CircleAvatar(
-                                      backgroundColor: Colors.deepPurple.shade100,
-                                      child: Text(
-                                        branch.branchCode,
-                                        style: TextStyle(
-                                          fontWeight: FontWeight.bold,
-                                          fontSize: 12,
-                                          color: Colors.deepPurple.shade900,
-                                        ),
-                                      ),
-                                    ),
-                                    title: Text(
-                                      branch.name,
-                                      style: const TextStyle(fontWeight: FontWeight.bold),
-                                    ),
-                                    subtitle: Text(
-                                      "${branch.address}, ${branch.city}, ${branch.state}"
-                                      "${branch.phone != null ? '\nPhone: ${branch.phone}' : ''}",
-                                    ),
-                                    isThreeLine: branch.phone != null,
-                                    trailing: PopupMenuButton<String>(
-                                      onSelected: (val) {
-                                        if (val == 'edit') {
-                                          _showBranchFormDialog(branch);
-                                        } else if (val == 'delete') {
-                                          _confirmDelete(branch);
-                                        }
-                                      },
-                                      itemBuilder: (context) => [
-                                        const PopupMenuItem(
-                                          value: 'edit',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.edit, size: 18),
-                                              SizedBox(width: 8),
-                                              Text("Edit"),
-                                            ],
-                                          ),
-                                        ),
-                                        const PopupMenuItem(
-                                          value: 'delete',
-                                          child: Row(
-                                            children: [
-                                              Icon(Icons.delete, color: Colors.red, size: 18),
-                                              SizedBox(width: 8),
-                                              Text("Delete", style: TextStyle(color: Colors.red)),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
+            child: branchesState.when(
+              loading: () => _buildLoadingState(colorScheme),
+              error: (error, _) => _buildErrorState(error.toString(), colorScheme, theme),
+              data: (branches) {
+                final filtered = _filterBranches(branches);
+                if (filtered.isEmpty) {
+                  return _buildEmptyState(colorScheme, theme, branches.isEmpty);
+                }
+                return RefreshIndicator(
+                  onRefresh: () => ref.read(branchesProvider.notifier).loadBranches(),
+                  child: ListView.builder(
+                    padding: const EdgeInsets.only(top: 8, bottom: 88),
+                    itemCount: filtered.length,
+                    itemBuilder: (context, index) {
+                      final branch = filtered[index];
+                      return BranchCard(
+                        branch: branch,
+                        onEdit: () => _showEditDialog(branch),
+                        onDelete: () => _confirmDelete(branch),
+                        onToggleActive: () => _toggleActive(branch),
+                      );
+                    },
+                  ),
+                );
+              },
+            ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadingState(ColorScheme colorScheme) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CircularProgressIndicator(color: colorScheme.primary),
+          const SizedBox(height: 16),
+          Text(
+            'Loading branches…',
+            style: TextStyle(color: colorScheme.onSurfaceVariant),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildErrorState(String error, ColorScheme colorScheme, ThemeData theme) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: colorScheme.errorContainer,
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.wifi_off_rounded,
+                size: 48,
+                color: colorScheme.onErrorContainer,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Something went wrong',
+              style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              error,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            const SizedBox(height: 32),
+            FilledButton.icon(
+              onPressed: () => ref.read(branchesProvider.notifier).loadBranches(),
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try Again'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyState(ColorScheme colorScheme, ThemeData theme, bool noBranchesAtAll) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(28),
+              decoration: BoxDecoration(
+                color: colorScheme.primaryContainer.withValues(alpha: 0.4),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                Icons.location_city_outlined,
+                size: 56,
+                color: colorScheme.primary,
+              ),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              noBranchesAtAll ? 'No branches yet' : 'No matches found',
+              style: theme.textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              noBranchesAtAll
+                  ? 'Create your first branch to get started.'
+                  : 'Try adjusting your search terms.',
+              textAlign: TextAlign.center,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+            if (noBranchesAtAll) ...[
+              const SizedBox(height: 32),
+              FilledButton.icon(
+                onPressed: _showCreateDialog,
+                icon: const Icon(Icons.add),
+                label: const Text('Add Branch'),
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }

@@ -33,6 +33,18 @@ class RegisterRequest(BaseModel):
 class ApproveUserRequest(BaseModel):
 
     role_id: int | None = None
+    branch_id: UUID | None = None
+
+    @field_validator("branch_id", mode="before")
+    @classmethod
+    def normalize_branch_id(cls, value):
+        if value is None:
+            return None
+
+        if isinstance(value, str) and value.strip() == "":
+            return None
+
+        return value
 
 
 # -----------------------------
@@ -62,6 +74,7 @@ class UserResponse(BaseModel):
     phone: str
 
     role_id: int
+    role_name: str | None = None
     branch_id: UUID | None
 
     status: str
@@ -74,6 +87,12 @@ class UserResponse(BaseModel):
     approved_at: datetime | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+def build_user_response(user) -> "UserResponse":
+    response = UserResponse.model_validate(user, from_attributes=True)
+    role_name = user.role.name if getattr(user, "role", None) else None
+    return response.model_copy(update={"role_name": role_name})
 
 
 # -----------------------------

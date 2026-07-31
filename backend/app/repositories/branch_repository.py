@@ -1,9 +1,10 @@
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.branch import Branch
+from app.models.user import User
 from app.schemas.branch import BranchCreate, BranchUpdate
 
 
@@ -27,11 +28,31 @@ class BranchRepository:
     async def get_all(
         self,
         db: AsyncSession,
+        is_active: bool | None = None,
     ) -> list[Branch]:
 
-        result = await db.execute(select(Branch))
+        query = select(Branch)
+
+        if is_active is not None:
+            query = query.where(Branch.is_active == is_active)
+
+        result = await db.execute(query.order_by(Branch.name))
 
         return result.scalars().all()
+
+    async def count_users(
+        self,
+        db: AsyncSession,
+        branch_id: UUID,
+    ) -> int:
+
+        result = await db.execute(
+            select(func.count())
+            .select_from(User)
+            .where(User.branch_id == branch_id)
+        )
+
+        return result.scalar_one()
 
     async def get_by_id(
         self,

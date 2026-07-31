@@ -32,9 +32,13 @@ class BranchService:
     async def get_all_branches(
         self,
         db: AsyncSession,
+        is_active: bool | None = None,
     ) -> list[Branch]:
 
-        return await branch_repository.get_all(db)
+        return await branch_repository.get_all(
+            db,
+            is_active=is_active,
+        )
 
     async def get_branch_by_id(
         self,
@@ -67,6 +71,21 @@ class BranchService:
             branch_id,
         )
 
+        if (
+            branch_data.branch_code
+            and branch_data.branch_code != branch.branch_code
+        ):
+            existing_branch = await branch_repository.get_by_branch_code(
+                db,
+                branch_data.branch_code,
+            )
+
+            if existing_branch:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail="Branch code already exists.",
+                )
+
         return await branch_repository.update(
             db,
             branch,
@@ -83,6 +102,20 @@ class BranchService:
             db,
             branch_id,
         )
+
+        assigned_users = await branch_repository.count_users(
+            db,
+            branch_id,
+        )
+
+        if assigned_users > 0:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=(
+                    "Cannot delete branch with assigned users. "
+                    "Deactivate it instead."
+                ),
+            )
 
         await branch_repository.delete(
             db,

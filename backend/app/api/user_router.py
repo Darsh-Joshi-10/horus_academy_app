@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import require_admin
 from app.db.session import get_db
-from app.schemas.auth import ApproveUserRequest, UserResponse
+from app.schemas.auth import ApproveUserRequest, UserResponse, build_user_response
 from app.services.user_service import UserService
 
 router = APIRouter(
@@ -15,14 +15,14 @@ router = APIRouter(
 
 
 @router.get(
-    "/",
+    "",
     response_model=list[UserResponse],
 )
 async def get_all_users(
     db: AsyncSession = Depends(get_db),
     admin: UserResponse = Depends(require_admin),
 ):
-    return await UserService.get_all_users(db)
+    return [build_user_response(user) for user in await UserService.get_all_users(db)]
 
 
 @router.get(
@@ -33,7 +33,10 @@ async def get_pending_users(
     db: AsyncSession = Depends(get_db),
     admin: UserResponse = Depends(require_admin),
 ):
-    return await UserService.get_pending_users(db)
+    return [
+        build_user_response(user)
+        for user in await UserService.get_pending_users(db)
+    ]
 
 
 @router.patch(
@@ -42,15 +45,18 @@ async def get_pending_users(
 )
 async def approve_user(
     user_id: UUID,
-    request: ApproveUserRequest | None = None,
+    request: ApproveUserRequest,
     db: AsyncSession = Depends(get_db),
     admin: UserResponse = Depends(require_admin),
 ):
-    return await UserService.approve_user(
-        db,
-        user_id,
-        role_id=request.role_id if request else None,
+    user = await UserService.approve_user(
+        db=db,
+        user_id=user_id,
+        role_id=request.role_id,
+        branch_id=request.branch_id,
+        approved_by=UUID(str(admin.id)),
     )
+    return build_user_response(user)
 
 
 @router.patch(
@@ -62,7 +68,8 @@ async def reject_user(
     db: AsyncSession = Depends(get_db),
     admin: UserResponse = Depends(require_admin),
 ):
-    return await UserService.reject_user(db, user_id)
+    user = await UserService.reject_user(db, user_id)
+    return build_user_response(user)
 
 
 @router.patch(
@@ -74,4 +81,5 @@ async def suspend_user(
     db: AsyncSession = Depends(get_db),
     admin: UserResponse = Depends(require_admin),
 ):
-    return await UserService.suspend_user(db, user_id)
+    user = await UserService.suspend_user(db, user_id)
+    return build_user_response(user)

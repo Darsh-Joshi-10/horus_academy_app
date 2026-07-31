@@ -40,9 +40,13 @@ async def create_branch(
     response_model=list[BranchResponse],
 )
 async def get_all_branches(
+    is_active: bool | None = None,
     db: AsyncSession = Depends(get_db),
 ):
-    return await branch_service.get_all_branches(db)
+    return await branch_service.get_all_branches(
+        db,
+        is_active=is_active,
+    )
 
 
 @router.get(

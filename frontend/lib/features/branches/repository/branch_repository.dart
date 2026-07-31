@@ -5,10 +5,11 @@ import '../../../core/network/dio_client.dart';
 import '../models/branch_model.dart';
 
 class BranchRepository {
-  Future<List<Branch>> getBranches() async {
+  Future<List<Branch>> getBranches({bool activeOnly = false}) async {
     try {
       final Response response = await DioClient.dio.get(
         ApiConstants.branches,
+        queryParameters: activeOnly ? {'is_active': true} : null,
       );
 
       final List list = response.data as List;

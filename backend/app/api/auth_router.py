@@ -8,6 +8,7 @@ from app.schemas.auth import (
     LoginResponse,
     RegisterRequest,
     UserResponse,
+    build_user_response,
 )
 from app.services.auth_service import AuthService
 
@@ -29,7 +30,7 @@ async def register(
         request=request,
     )
 
-    return user
+    return build_user_response(user)
 
 
 @router.post(
@@ -41,10 +42,16 @@ async def login(
     db: AsyncSession = Depends(get_db),
 ):
 
-    return await AuthService.login(
+    result = await AuthService.login(
         db=db,
         request=request,
     )
+
+    return {
+        "access_token": result["access_token"],
+        "token_type": result["token_type"],
+        "user": build_user_response(result["user"]),
+    }
 
 
 @router.get(

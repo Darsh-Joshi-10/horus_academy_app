@@ -4,6 +4,7 @@ from sqlalchemy import text
 
 from app.api.auth_router import router as auth_router
 from app.api.branch_router import router as branch_router
+from app.api.role_router import router as role_router
 from app.api.user_router import router as user_router
 from app.core.config import settings
 from app.db.init_db import initialize_database
@@ -31,6 +32,11 @@ app.add_middleware(
 
 app.include_router(
     branch_router,
+    prefix="/api",
+)
+
+app.include_router(
+    role_router,
     prefix="/api",
 )
 
